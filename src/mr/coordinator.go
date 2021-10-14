@@ -14,12 +14,12 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-	lock      sync.Mutex
-	stage     string // 目前任务状态：MAP REDUCE DONE
-	nMap      int
-	nReduce   int
-	tasks     map[string]Task
-	toDoTasks chan Task
+	lock      sync.Mutex      // 锁
+	stage     string          // 目前任务状态：MAP REDUCE DONE
+	nMap      int             // MAP任务数量
+	nReduce   int             // Reduce任务数量
+	tasks     map[string]Task // 任务映射，主要是查看任务状态
+	toDoTasks chan Task       // 待完成任务，采用通道实现，内置锁结构
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -39,6 +39,7 @@ func (c *Coordinator) ApplyForTask(args *ApplyForTaskArgs, reply *ApplyForTaskRe
 	if args.LastTaskId != -1 {
 		c.lock.Lock()
 		taskId := crateTaskId(args.LastTaskType, args.LastTaskId)
+		// 这里才产生最后的输出结果，是因为怕超时worker和合法worker都写入，造成冲突
 		if task, ok := c.tasks[taskId]; ok && task.WorkerId == args.WorkerId { // 加后一个条件原因是莫个work出现故障，要被回收
 			log.Printf("%d 完成 %s-%d 任务", args.WorkerId, args.LastTaskType, args.LastTaskId)
 			if args.LastTaskType == MAP {
@@ -168,7 +169,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	log.Printf("Coordinator start\n")
 	c.server()
 
-	// 多线程启动回收机制
+	// 多线程启动回收机制，回收超时任务
 	go func() {
 		for {
 			time.Sleep(500 * time.Millisecond)

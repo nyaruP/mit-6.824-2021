@@ -33,7 +33,7 @@ const (
 	DONE   = "DONE"
 )
 
-// 一定要大写开头， 不然序列化的时候可能找不到
+// 一定要大写开头， 不然RPC通信过程中序列化/反序列化的时候可能找不到
 type Task struct {
 	Id           int
 	Type         string

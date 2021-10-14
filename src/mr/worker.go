@@ -39,6 +39,7 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 //
+// 不断循环向coordinator请求工作
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	// 单机运行，直接使用 PID 作为 Worker ID，方便 debug
 	id := os.Getpid()
