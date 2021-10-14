@@ -33,24 +33,25 @@ const (
 	DONE   = "DONE"
 )
 
+// 一定要大写开头， 不然序列化的时候可能找不到
 type Task struct {
-	id           int
-	genre        string
-	mapInputFile string
-	workerId     int
-	deadLine     time.Time
+	Id           int
+	Type         string
+	MapInputFile string
+	WorkerId     int
+	DeadLine     time.Time
 }
 type ApplyForTaskArgs struct {
-	workerId      int
-	lastTaskId    int
-	lastTaskGenre string
+	WorkerId     int
+	LastTaskId   int
+	LastTaskType string
 }
 type ApplyForTaskReply struct {
-	taskId       int
-	taskGenre    string
-	mapInputFile string
-	nReduce      int
-	nMap         int
+	TaskId       int
+	TaskType     string
+	MapInputFile string
+	NReduce      int
+	NMap         int
 }
 
 // Cook up a unique-ish UNIX-domain socket name

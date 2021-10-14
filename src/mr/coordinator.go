@@ -30,35 +30,36 @@ type Coordinator struct {
 // the RPC argument and reply types are defined in rpc.go.
 //
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
+	log.Printf("Example")
 	reply.Y = args.X + 1
 	return nil
 }
 func (c *Coordinator) ApplyForTask(args *ApplyForTaskArgs, reply *ApplyForTaskReply) error {
 	// 记录woker的上一个任务完成
-	if args.lastTaskId != -1 {
+	if args.LastTaskId != -1 {
 		c.lock.Lock()
-		taskId := crateTaskId(args.lastTaskGenre, args.lastTaskId)
-		if task, ok := c.tasks[taskId]; ok && task.workerId == args.workerId { // 加后一个条件原因是莫个work出现故障，要被回收
-			log.Printf("%d 完成 %s-%d 任务", args.workerId, args.lastTaskGenre, args.lastTaskId)
-			if args.lastTaskGenre == MAP {
+		taskId := crateTaskId(args.LastTaskType, args.LastTaskId)
+		if task, ok := c.tasks[taskId]; ok && task.WorkerId == args.WorkerId { // 加后一个条件原因是莫个work出现故障，要被回收
+			log.Printf("%d 完成 %s-%d 任务", args.WorkerId, args.LastTaskType, args.LastTaskId)
+			if args.LastTaskType == MAP {
 				for i := 0; i < c.nReduce; i++ {
 					err := os.Rename(
-						tmpMapOutFile(args.workerId, args.lastTaskId, i),
-						finalMapOutFile(args.lastTaskId, i))
+						tmpMapOutFile(args.WorkerId, args.LastTaskId, i),
+						finalMapOutFile(args.LastTaskId, i))
 					if err != nil {
 						log.Fatalf(
 							"Failed to mark map output file `%s` as final: %e",
-							tmpMapOutFile(args.workerId, args.lastTaskId, i), err)
+							tmpMapOutFile(args.WorkerId, args.LastTaskId, i), err)
 					}
 				}
-			} else if args.lastTaskGenre == REDUCE {
+			} else if args.LastTaskType == REDUCE {
 				err := os.Rename(
-					tmpReduceOutFile(args.workerId, args.lastTaskId),
-					finalReduceOutFile(args.lastTaskId))
+					tmpReduceOutFile(args.WorkerId, args.LastTaskId),
+					finalReduceOutFile(args.LastTaskId))
 				if err != nil {
 					log.Fatalf(
 						"Failed to mark reduce output file `%s` as final: %e",
-						tmpReduceOutFile(args.workerId, args.lastTaskId), err)
+						tmpReduceOutFile(args.WorkerId, args.LastTaskId), err)
 				}
 			}
 			delete(c.tasks, taskId)
@@ -78,26 +79,28 @@ func (c *Coordinator) ApplyForTask(args *ApplyForTaskArgs, reply *ApplyForTaskRe
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
+	log.Printf("Assign %s task %d to worker %dls"+
+		"\n", task.Type, task.Id, args.WorkerId)
 	// 更新task
-	task.workerId = args.workerId
-	task.deadLine = time.Now().Add(10 * time.Second)
-	c.tasks[crateTaskId(task.genre, task.id)] = task
+	task.WorkerId = args.WorkerId
+	task.DeadLine = time.Now().Add(10 * time.Second)
+	c.tasks[crateTaskId(task.Type, task.Id)] = task
 	// 给work返回数据
-	reply.taskId = task.id
-	reply.taskGenre = task.genre
-	reply.mapInputFile = task.mapInputFile
-	reply.nMap = c.nMap
-	reply.nReduce = c.nReduce
+	reply.TaskId = task.Id
+	reply.TaskType = task.Type
+	reply.MapInputFile = task.MapInputFile
+	reply.NMap = c.nMap
+	reply.NReduce = c.nReduce
 	return nil
 }
 
 func (c *Coordinator) cutover() {
 	if c.stage == MAP {
-		log.Printf("所有的MAP任务已经完成！")
+		log.Printf("所有的MAP任务已经完成！开始REDUCE任务！")
 		c.stage = REDUCE
 		for i := 0; i < c.nReduce; i++ {
-			task := Task{id: i, genre: REDUCE, workerId: -1}
-			c.tasks[crateTaskId(task.genre, i)] = task
+			task := Task{Id: i, Type: REDUCE, WorkerId: -1}
+			c.tasks[crateTaskId(task.Type, i)] = task
 			c.toDoTasks <- task
 		}
 	} else if c.stage == REDUCE {
@@ -139,7 +142,7 @@ func (c *Coordinator) Done() bool {
 //
 // create a Coordinator.
 // main/mrcoordinator.go calls this function.
-// nReduce is the number of reduce tasks to use.
+// NReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
@@ -153,29 +156,32 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Your code here.
 	for i, file := range files {
 		task := Task{
-			id:           i,
-			genre:        "MAP",
-			workerId:     -1,
-			mapInputFile: file,
+			Id:           i,
+			Type:         MAP,
+			WorkerId:     -1,
+			MapInputFile: file,
 		}
-		c.tasks[crateTaskId(task.genre, task.id)] = task
+		log.Printf("Type: %s", task.Type)
+		c.tasks[crateTaskId(task.Type, task.Id)] = task
 		c.toDoTasks <- task
 	}
-
+	log.Printf("Coordinator start\n")
 	c.server()
 
 	// 多线程启动回收机制
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-		c.lock.Unlock()
-		for _, task := range c.tasks {
-			if task.workerId != -1 && time.Now().After(task.deadLine) {
-				log.Printf("%d 运行任务 %s %d 出现故障，重新收回！", task.workerId, task.genre, task.id)
-				task.workerId = -1
-				c.toDoTasks <- task
+		for {
+			time.Sleep(500 * time.Millisecond)
+			c.lock.Lock()
+			for _, task := range c.tasks {
+				if task.WorkerId != -1 && time.Now().After(task.DeadLine) {
+					log.Printf("%d 运行任务 %s %d 出现故障，重新收回！", task.WorkerId, task.Type, task.Id)
+					task.WorkerId = -1
+					c.toDoTasks <- task
+				}
 			}
+			c.lock.Unlock()
 		}
-		c.lock.Unlock()
 	}()
 	return &c
 }

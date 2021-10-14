@@ -45,31 +45,31 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	log.Printf("Worker %d 开始工作：\n", id)
 
 	lastTaskId := -1
-	lastTaskGenre := ""
+	lastTaskType := ""
 	for {
 		args := ApplyForTaskArgs{
-			workerId:      id,
-			lastTaskId:    lastTaskId,
-			lastTaskGenre: lastTaskGenre,
+			WorkerId:     id,
+			LastTaskId:   lastTaskId,
+			LastTaskType: lastTaskType,
 		}
 		reply := ApplyForTaskReply{}
 		call("Coordinator.ApplyForTask", &args, &reply)
-
-		switch reply.taskGenre {
-		case DONE:
+		switch reply.TaskType {
+		case "":
 			log.Printf("接收到所有任务完成信号！")
 			goto End
 		case MAP:
-			doMapTask(id, reply.taskId, reply.mapInputFile, reply.nReduce, mapf)
+			doMapTask(id, reply.TaskId, reply.MapInputFile, reply.NReduce, mapf)
 		case REDUCE:
-			doReduceTask(id, reply.taskId, reply.nMap, reducef)
+			doReduceTask(id, reply.TaskId, reply.NMap, reducef)
 		}
-		lastTaskId = reply.taskId
-		lastTaskGenre = reply.taskGenre
-		log.Printf("完成 %s 任务 %d", reply.taskGenre, reply.taskId)
+		lastTaskId = reply.TaskId
+		lastTaskType = reply.TaskType
+		log.Printf("完成 %s 任务 %d", reply.TaskType, reply.TaskId)
 	}
-	log.Printf("Worker %d 结束工作\n", id)
 End:
+	log.Printf("Worker %d 结束工作\n", id)
+
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
@@ -99,7 +99,7 @@ func doMapTask(id int, taskId int, fileName string, nReduce int, mapf func(strin
 	for i := 0; i < nReduce; i++ {
 		outFile, _ := os.Create(tmpMapOutFile(id, taskId, i))
 		for _, kv := range hashedKva[i] {
-			fmt.Fprintf(outFile, "%v%r%v\n", kv.Key, kv.Value)
+			fmt.Fprintf(outFile, "%v\t%v\n", kv.Key, kv.Value)
 		}
 		outFile.Close()
 	}
@@ -121,10 +121,10 @@ func doReduceTask(id int, taskId int, nMap int, reducef func(string, []string) s
 
 	var kva []KeyValue
 	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		split := strings.Split(line, "\r")
+		split := strings.Split(line, "\t")
 		kva = append(kva, KeyValue{
 			Key:   split[0],
 			Value: split[1],
@@ -142,7 +142,7 @@ func doReduceTask(id int, taskId int, nMap int, reducef func(string, []string) s
 			j++
 		}
 		var values []string
-		for k := i; k < j; i++ {
+		for k := i; k < j; k++ {
 			values = append(values, kva[k].Value)
 		}
 		output := reducef(kva[i].Key, values)

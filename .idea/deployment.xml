@@ -5,7 +5,7 @@
       <paths name="huawei">
         <serverdata>
           <mappings>
-            <mapping deploy="/root" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
