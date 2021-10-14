@@ -4,5 +4,5 @@ MIT 6.824 主要介绍分布式系统，主讲老师是Robert Morris，这个看
 
 课程安排和实验材料获取：https://pdos.csail.mit.edu/6.824/schedule.html，这里是可以获取全部材料。包括每一节课需要看的论文，课后的Lab说明，极其方便！
 
-[MIT 6.824 Lecture 01 MapReduce.md](https://www.cnblogs.com/pxlsdz/p/15408729.html)
-[MIT 6.824 Lab 1 - 实现 MapReduce](https://www.cnblogs.com/pxlsdz/p/15408731.html)
+- [MIT 6.824 Lecture 01 MapReduce](https://www.cnblogs.com/pxlsdz/p/15408729.html)
+- [MIT 6.824 Lab 1 - 实现 MapReduce](https://www.cnblogs.com/pxlsdz/p/15408731.html)
