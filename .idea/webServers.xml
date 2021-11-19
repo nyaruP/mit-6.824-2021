@@ -2,8 +2,8 @@
 <project version="4">
   <component name="WebServers">
     <option name="servers">
-      <webServer id="2a9658c1-bd4b-494c-9e59-4f5befddb19b" name="huawei">
-        <fileTransfer rootFolder="/root/6.824" accessType="SFTP" host="124.70.194.81" port="22" sshConfigId="99015604-a1e3-4483-888b-763c0d6280f6" sshConfig="root@124.70.194.81:22 password">
+      <webServer id="2a9658c1-bd4b-494c-9e59-4f5befddb19b" name="aly_sdz">
+        <fileTransfer rootFolder="/home/sdz/MIT6.824_2021" accessType="SFTP" host="121.199.59.80" port="22" sshConfigId="99015604-a1e3-4483-888b-763c0d6280f6" sshConfig="sdz@121.199.59.80:22 password">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>

@@ -2,7 +2,7 @@
 <project version="4">
   <component name="SshConfigs">
     <configs>
-      <sshConfig authType="PASSWORD" host="124.70.194.81" id="99015604-a1e3-4483-888b-763c0d6280f6" port="22" nameFormat="DESCRIPTIVE" username="root" />
+      <sshConfig authType="PASSWORD" host="121.199.59.80" id="99015604-a1e3-4483-888b-763c0d6280f6" port="22" nameFormat="DESCRIPTIVE" username="sdz" />
     </configs>
   </component>
 </project>
