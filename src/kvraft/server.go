@@ -185,8 +185,6 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.lastOperations = make(map[int64]OperationContext)
 	kv.notifyChans = make(map[int]chan *CommandReply)
 
-	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
-
 	// You may need initialization code here.
 	go kv.applier()
 
