@@ -214,6 +214,8 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		if lastIndex < request.PrevLogIndex {
 			response.ConflictTerm, response.ConflictIndex = -1, lastIndex+1
 			// 2. Follower prevLogIndex 处存在 log
+			// 向主节点上报信息，加速下次复制日志
+			// 当PreLogTerm与当前日志的任期不匹配时，找出日志第一个不匹配任期的index
 		} else {
 			firstIndex := rf.getFirstLog().Index
 			response.ConflictTerm = rf.logs[request.PrevLogIndex-firstIndex].Term

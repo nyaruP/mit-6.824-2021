@@ -4,29 +4,16 @@ import (
 	"6.824/labgob"
 	"6.824/labrpc"
 	"6.824/raft"
-	"log"
+	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
-const Debug = false
-
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug {
-		log.Printf(format, a...)
-	}
-	return
-}
-
-
-type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
-}
+const ExecuteTimeout = 500 * time.Millisecond
 
 type KVServer struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	me      int
 	rf      *raft.Raft
 	applyCh chan raft.ApplyMsg
@@ -35,16 +22,51 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
+	lastApplied    int                        //
+	stateMachine   KVStateMachine             // 服务器数据存储（key，value）
+	lastOperations map[int64]OperationContext // 客户端id最后的命令id和回复内容 （clientId，{最后的commdId，最后的LastReply}）
+	notifyChans    map[int]chan *CommandReply // Leader回复给客户端的响应（日志Index， CommandReply）
 }
 
+func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
+	defer DPrintf("{Node %v} processes CommandRequest %v with CommandResponse %v", kv.rf.Me(), args, reply)
+	kv.mu.RLock()
+	if args.Op == OpGet && kv.isDuplicateRequest(args.ClientId, args.CommandId) {
+		lastReply := kv.lastOperations[args.ClientId].LastReply
+		reply.Err, reply.Value = lastReply.Err, lastReply.Value
+		kv.mu.RUnlock()
+		return
+	}
+	kv.mu.RUnlock()
+	index, _, isLeader := kv.rf.Start(Command{args})
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
 
-func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
+	kv.mu.Lock()
+	ch := kv.getNotifyChan(index)
+	kv.mu.Unlock()
+	select {
+	case res := <-ch:
+		reply.Err, reply.Value = res.Err, res.Value
+	case <-time.After(ExecuteTimeout):
+		reply.Err = ErrTimeout
+	}
+	go func() {
+		kv.mu.Lock()
+		delete(kv.notifyChans, index)
+		kv.mu.Unlock()
+	}()
 }
 
-func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
-}
+//func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
+//	// Your code here.
+//}
+//
+//func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
+//	// Your code here.
+//}
 
 //
 // the tester calls Kill() when a KVServer instance won't
@@ -67,6 +89,69 @@ func (kv *KVServer) killed() bool {
 	return z == 1
 }
 
+func (kv *KVServer) applier() {
+	for kv.killed() == false {
+		select {
+		case message := <-kv.applyCh:
+			if message.CommandValid {
+				kv.mu.Lock()
+				if message.CommandIndex <= kv.lastApplied {
+					kv.mu.Unlock()
+					continue
+				}
+				kv.lastApplied = message.CommandIndex
+
+				var reply *CommandReply
+				command := message.Command.(Command)
+				if command.Op != OpGet && kv.isDuplicateRequest(command.ClientId, command.CommandId) {
+					reply = kv.lastOperations[command.ClientId].LastReply
+				} else {
+					reply = kv.applyLogToStateMachine(command)
+					if command.Op != OpGet {
+						kv.lastOperations[command.ClientId] = OperationContext{command.CommandId, reply}
+					}
+				}
+				if currentTerm, isLeader := kv.rf.GetState(); isLeader && message.CommandTerm == currentTerm {
+					ch := kv.getNotifyChan(message.CommandIndex)
+					ch <- reply
+				}
+				kv.mu.Unlock()
+			} else {
+				panic(fmt.Sprintf("unexpected Message %v", message))
+			}
+
+		}
+	}
+}
+
+//每个RPC都意味着客户端已经看到了它之前的RPC的回复。
+//因此，我们只需要判断一个clientId的最新commandId是否满足条件
+func (kv *KVServer) isDuplicateRequest(clientId int64, commandId int64) bool {
+	operationContext, ok := kv.lastOperations[clientId]
+	return ok && commandId <= operationContext.MaxAppliedCommandId
+}
+
+func (kv *KVServer) applyLogToStateMachine(command Command) *CommandReply {
+	var value string
+	var err Err
+	switch command.Op {
+	case OpGet:
+		value, err = kv.stateMachine.Get(command.Key)
+	case OpPut:
+		err = kv.stateMachine.Put(command.Key, command.Value)
+	case OpAppend:
+		err = kv.stateMachine.Append(command.Key, command.Value)
+	}
+	return &CommandReply{err, value}
+}
+
+func (kv *KVServer) getNotifyChan(index int) chan *CommandReply {
+	if _, ok := kv.notifyChans[index]; !ok {
+		kv.notifyChans[index] = make(chan *CommandReply, 1)
+	}
+	return kv.notifyChans[index]
+}
+
 //
 // servers[] contains the ports of the set of
 // servers that will cooperate via Raft to
@@ -84,18 +169,27 @@ func (kv *KVServer) killed() bool {
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
-	labgob.Register(Op{})
+
+	labgob.Register(Command{})
 
 	kv := new(KVServer)
 	kv.me = me
 	kv.maxraftstate = maxraftstate
 
 	// You may need initialization code here.
-
 	kv.applyCh = make(chan raft.ApplyMsg)
+	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+	kv.dead = 0
+	kv.lastApplied = 0
+	kv.stateMachine = NewMemoryKV()
+	kv.lastOperations = make(map[int64]OperationContext)
+	kv.notifyChans = make(map[int]chan *CommandReply)
+
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// You may need initialization code here.
+	go kv.applier()
 
+	DPrintf("{Node %v} has started", kv.rf.Me())
 	return kv
 }
