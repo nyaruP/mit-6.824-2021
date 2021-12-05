@@ -4,6 +4,7 @@ import (
 	"6.824/labgob"
 	"6.824/labrpc"
 	"6.824/raft"
+	"bytes"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,7 @@ type KVServer struct {
 	notifyChans    map[int]chan *CommandReply // Leader回复给客户端的响应（日志Index， CommandReply）
 }
 
+// 处理并返回客户端结果
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
 	defer DPrintf("{Node %v} processes CommandRequest %v with CommandResponse %v", kv.rf.Me(), args, reply)
 	kv.mu.RLock()
@@ -115,6 +117,17 @@ func (kv *KVServer) applier() {
 					ch := kv.getNotifyChan(message.CommandIndex)
 					ch <- reply
 				}
+				needSnapshot := kv.needSnapshot()
+				if needSnapshot {
+					kv.takeSnapshot(message.CommandIndex)
+				}
+				kv.mu.Unlock()
+			} else if message.SnapshotValid {
+				kv.mu.Lock()
+				if kv.rf.CondInstallSnapshot(message.SnapshotTerm, message.SnapshotIndex, message.Snapshot) {
+					kv.restoreSnapshot(message.Snapshot)
+					kv.lastApplied = message.SnapshotIndex
+				}
 				kv.mu.Unlock()
 			} else {
 				panic(fmt.Sprintf("unexpected Message %v", message))
@@ -186,8 +199,35 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.notifyChans = make(map[int]chan *CommandReply)
 
 	// You may need initialization code here.
+	kv.restoreSnapshot(persister.ReadSnapshot())
 	go kv.applier()
 
 	DPrintf("{Node %v} has started", kv.rf.Me())
 	return kv
+}
+
+// 持久化
+func (kv *KVServer) restoreSnapshot(snapshot []byte) {
+	if snapshot == nil || len(snapshot) == 0 {
+		return
+	}
+	r := bytes.NewBuffer(snapshot)
+	d := labgob.NewDecoder(r)
+	var stateMachine MemoryKV
+	var lastOperations map[int64]OperationContext
+	if d.Decode(&stateMachine) != nil ||
+		d.Decode(&lastOperations) != nil {
+	}
+	kv.stateMachine, kv.lastOperations = &stateMachine, lastOperations
+}
+func (kv *KVServer) needSnapshot() bool {
+	return kv.maxraftstate != -1 && kv.rf.GetRaftStateSize() >= kv.maxraftstate
+}
+
+func (kv *KVServer) takeSnapshot(index int) {
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(kv.stateMachine)
+	e.Encode(kv.lastOperations)
+	kv.rf.Snapshot(index, w.Bytes())
 }
