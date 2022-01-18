@@ -18,6 +18,7 @@ type OperationContext struct {
 	MaxAppliedCommandId int64
 	LastReply           *CommandReply
 }
+
 type Err uint8
 
 const (

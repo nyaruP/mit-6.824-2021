@@ -4,14 +4,18 @@ package shardctrler
 // Shardctrler clerk.
 //
 
-import "6.824/labrpc"
-import "time"
+import (
+	"6.824/labrpc"
+)
 import "crypto/rand"
 import "math/big"
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// Your data here.
+	leaderId  int64
+	clientId  int64
+	commandId int64
 }
 
 func nrand() int64 {
@@ -25,77 +29,43 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// Your code here.
+	ck.leaderId = 0
+	ck.clientId = nrand()
+	ck.commandId = 0
 	return ck
 }
 
+// Query 查询最新的Config信息。
 func (ck *Clerk) Query(num int) Config {
-	args := &QueryArgs{}
-	// Your code here.
-	args.Num = num
-	for {
-		// try each known server.
-		for _, srv := range ck.servers {
-			var reply QueryReply
-			ok := srv.Call("ShardCtrler.Query", args, &reply)
-			if ok && reply.WrongLeader == false {
-				return reply.Config
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	return ck.Command(&CommandArgs{Num: num, Op: OpQuery})
 }
 
+// Join 新加入的Group信息
 func (ck *Clerk) Join(servers map[int][]string) {
-	args := &JoinArgs{}
-	// Your code here.
-	args.Servers = servers
-
-	for {
-		// try each known server.
-		for _, srv := range ck.servers {
-			var reply JoinReply
-			ok := srv.Call("ShardCtrler.Join", args, &reply)
-			if ok && reply.WrongLeader == false {
-				return
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	ck.Command(&CommandArgs{Servers: servers, Op: OpJoin})
 }
 
+// Leave 哪些Group要离开。
 func (ck *Clerk) Leave(gids []int) {
-	args := &LeaveArgs{}
-	// Your code here.
-	args.GIDs = gids
-
-	for {
-		// try each known server.
-		for _, srv := range ck.servers {
-			var reply LeaveReply
-			ok := srv.Call("ShardCtrler.Leave", args, &reply)
-			if ok && reply.WrongLeader == false {
-				return
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	ck.Command(&CommandArgs{GIDs: gids, Op: OpLeave})
 }
 
+// Move 将Shard分配给GID的Group,无论它原来在哪。
 func (ck *Clerk) Move(shard int, gid int) {
-	args := &MoveArgs{}
-	// Your code here.
-	args.Shard = shard
-	args.GID = gid
+	ck.Command(&CommandArgs{Shard: shard, GID: gid, Op: OpMove})
+}
 
+func (ck *Clerk) Command(args *CommandArgs) Config {
+	args.CommandId, args.ClientId = ck.commandId, ck.clientId
+	DPrintf("ShardClient send %v, ", args)
 	for {
-		// try each known server.
-		for _, srv := range ck.servers {
-			var reply MoveReply
-			ok := srv.Call("ShardCtrler.Move", args, &reply)
-			if ok && reply.WrongLeader == false {
-				return
-			}
+		var reply CommandReply
+		if !ck.servers[ck.leaderId].Call("ShardCtrler.Command", args, &reply) || reply.Err == ErrWrongLeader || reply.Err == ErrTimeout {
+			//DPrintf("ShardClient receive %v", reply)
+			ck.leaderId = (ck.leaderId + 1) % int64(len(ck.servers))
+			continue
 		}
-		time.Sleep(100 * time.Millisecond)
+		ck.commandId++
+		return reply.Config
 	}
 }

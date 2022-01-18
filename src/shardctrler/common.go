@@ -1,5 +1,11 @@
 package shardctrler
 
+import (
+	"fmt"
+	"log"
+	"time"
+)
+
 //
 // Shard controler: assigns shards to replication groups.
 //
@@ -20,54 +26,89 @@ package shardctrler
 // The number of shards.
 const NShards = 10
 
+const ExecuteTimeout = 500 * time.Millisecond
+
 // A configuration -- an assignment of shards to groups.
 // Please don't change this.
 type Config struct {
 	Num    int              // config number
-	Shards [NShards]int     // shard -> gid
-	Groups map[int][]string // gid -> servers[]
+	Shards [NShards]int     // shard -> gid，分片位置信息，Shards[3]=2，说明分片序号为3的分片负贵的集群是Group2（gid=2）
+	Groups map[int][]string // gid -> servers[],集群成员信息，Group[3]=['ip1','ip2'],说明gid = 3的集群Group3包含两台名称为ip1 & ip2的机器
 }
+
+type OperationOp uint8
 
 const (
-	OK = "OK"
+	OpJoin OperationOp = iota
+	OpLeave
+	OpMove
+	OpQuery
 )
 
-type Err string
-
-type JoinArgs struct {
-	Servers map[int][]string // new GID -> servers mappings
+func (op OperationOp) String() string {
+	switch op {
+	case OpJoin:
+		return "OpJoin"
+	case OpLeave:
+		return "OpLeave"
+	case OpMove:
+		return "OpMove"
+	case OpQuery:
+		return "OpQuery"
+	}
+	panic(fmt.Sprintf("unexpected CommandOp %d", op))
 }
 
-type JoinReply struct {
-	WrongLeader bool
-	Err         Err
+type Command struct {
+	*CommandArgs
 }
 
-type LeaveArgs struct {
-	GIDs []int
+type CommandArgs struct {
+	Servers   map[int][]string // Join, new GID -> servers mappings
+	GIDs      []int            // Leave
+	Shard     int              // Move
+	GID       int              // Move
+	Num       int              // Query desired config number
+	Op        OperationOp
+	ClientId  int64
+	CommandId int64
 }
 
-type LeaveReply struct {
-	WrongLeader bool
-	Err         Err
+type Err uint8
+
+const (
+	OK Err = iota
+	ErrWrongLeader
+	ErrTimeout
+)
+
+func (err Err) String() string {
+	switch err {
+	case OK:
+		return "OK"
+	case ErrWrongLeader:
+		return "ErrWrongLeader"
+	case ErrTimeout:
+		return "ErrTimeout"
+	}
+	panic(fmt.Sprintf("unexpected Err %d", err))
 }
 
-type MoveArgs struct {
-	Shard int
-	GID   int
+type CommandReply struct {
+	Err    Err
+	Config Config
 }
 
-type MoveReply struct {
-	WrongLeader bool
-	Err         Err
+type OperationContext struct {
+	MaxAppliedCommandId int64
+	LastReply           *CommandReply
 }
 
-type QueryArgs struct {
-	Num int // desired config number
-}
+const Debug = false
 
-type QueryReply struct {
-	WrongLeader bool
-	Err         Err
-	Config      Config
+func DPrintf(format string, a ...interface{}) (n int, err error) {
+	if Debug {
+		log.Printf(format, a...)
+	}
+	return
 }

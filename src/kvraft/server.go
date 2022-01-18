@@ -33,7 +33,7 @@ type KVServer struct {
 func (kv *KVServer) Command(args *CommandArgs, reply *CommandReply) {
 	defer DPrintf("{Node %v} processes CommandRequest %v with CommandResponse %v", kv.rf.Me(), args, reply)
 	kv.mu.RLock()
-	if args.Op == OpGet && kv.isDuplicateRequest(args.ClientId, args.CommandId) {
+	if args.Op != OpGet && kv.isDuplicateRequest(args.ClientId, args.CommandId) {
 		lastReply := kv.lastOperations[args.ClientId].LastReply
 		reply.Err, reply.Value = lastReply.Err, lastReply.Value
 		kv.mu.RUnlock()

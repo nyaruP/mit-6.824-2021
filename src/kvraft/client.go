@@ -9,7 +9,7 @@ type Clerk struct {
 	// You will have to modify this struct.
 	leaderId  int64
 	clientId  int64
-	commandId int64
+	commandId int64 // (clientId, commandId) 保证操作序列唯一
 }
 
 func nrand() int64 {
